@@ -7,4 +7,6 @@ app.get("/health", (req, res) => {
   res.status(200).json({ ok: true });
 });
 
-module.exports = serverless(app);
+// Export correctly for Vercel
+module.exports = app;
+module.exports.handler = serverless(app);
