@@ -1,9 +1,11 @@
 const express = require("express");
 const { MongoClient } = require("mongodb");
+const cors = require("cors");
 
 const app = express();
 app.use(express.json());
 
+app.use(cors({ origin: "*" }));
 // --- Mongo connection (reused across invocations) ---
 let clientPromise;  // a single promise reused by all requests
 let db;
