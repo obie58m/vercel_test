@@ -1,31 +1,45 @@
 const express = require("express");
-const serverless = require("serverless-http");
 const { MongoClient } = require("mongodb");
 
 const app = express();
 app.use(express.json());
 
-// Reuse the client across invocations (good for Vercel)
-let client;
+// --- Mongo connection (reused across invocations) ---
+let clientPromise;  // a single promise reused by all requests
 let db;
 
-async function connectDB() {
-  if (!client) {
-    client = new MongoClient(process.env.MONGODB_URI);
-    await client.connect();
+function getClientPromise() {
+  if (!clientPromise) {
+    const uri = process.env.MONGODB_URI;
+    if (!uri) {
+      throw new Error("Missing MONGODB_URI environment variable");
+    }
+    const client = new MongoClient(uri);
+    clientPromise = client.connect();
+  }
+  return clientPromise;
+}
+
+async function getDb() {
+  if (!db) {
+    const client = await getClientPromise();
     db = client.db(process.env.MONGODB_DB || "scoresdb");
   }
   return db;
 }
 
-// Add new score
+// --- Routes ---
+app.get("/health", (_req, res) => {
+  res.status(200).json({ ok: true });
+});
+
 app.post("/scores", async (req, res) => {
   try {
     const { name, score } = req.body;
     if (!name || typeof score !== "number") {
       return res.status(400).json({ error: "Name and score are required" });
     }
-    const db = await connectDB();
+    const db = await getDb();
     await db.collection("scores").insertOne({
       name: name.trim(),
       score,
@@ -33,15 +47,14 @@ app.post("/scores", async (req, res) => {
     });
     res.status(201).json({ message: "Score added successfully" });
   } catch (err) {
-    console.error("Error inserting score:", err);
+    console.error("Add score error:", err);
     res.status(500).json({ error: "Internal server error" });
   }
 });
 
-// Get top 10 scores
 app.get("/scores", async (_req, res) => {
   try {
-    const db = await connectDB();
+    const db = await getDb();
     const scores = await db
       .collection("scores")
       .find({})
@@ -50,15 +63,10 @@ app.get("/scores", async (_req, res) => {
       .toArray();
     res.json(scores);
   } catch (err) {
-    console.error("Error fetching scores:", err);
+    console.error("Fetch scores error:", err);
     res.status(500).json({ error: "Internal server error" });
   }
 });
 
-// Health check
-app.get("/health", (_req, res) => {
-  res.json({ ok: true });
-});
-
-module.exports = app;
-module.exports.handler = serverless(app);
+// --- Export a Vercel-style handler (no serverless-http) ---
+module.exports = (req, res) => app(req, res);
